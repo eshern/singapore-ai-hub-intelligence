@@ -78,8 +78,8 @@ executive-level answer.
                                           │
                                           ▼  (all agent outputs)
                             ┌─────────────────────────────┐
-                            │       SYNTHESIZER NODE       │  <- LangGraph Final Node
-                            │   (Executive-Level Answer)   │
+                            │       SYNTHESIZER NODE      │  <- LangGraph Final Node
+                            │   (Executive-Level Answer)  │
                             └─────────────┬───────────────┘
                                           │
                                           ▼
@@ -112,7 +112,71 @@ executive-level answer.
 
 ## 3. Dataset
 
-All source documents are in `data_agents/`:
+> **Note:** The `data_agents/` folder and `chroma_db_agents/` vector database are **not included** in this repository (gitignored — PDFs are 109 MB; vector DB is 55 MB).
+> Download the PDFs from the public sources listed below, place them in `data_agents/`, then run Cell 7 (`build_knowledge_base()`) to rebuild the ChromaDB collections automatically.
+
+```bash
+mkdir -p data_agents
+```
+
+All source documents are publicly available. Download each PDF and save to `data_agents/` with the exact filename shown:
+
+| File | Publisher | Download / Source |
+|---|---|---|
+| `Singapore AI Opportunity.pdf` | IMDA Singapore | [IMDA.gov.sg](https://www.imda.gov.sg) |
+| `CSET-Examining-Singapores-AI-Progress.pdf` | CSET Georgetown | [cset.georgetown.edu](https://cset.georgetown.edu) |
+| `Model-AI-Governance-Framework-for-Generative-AI-19-June-2024.pdf` | IMDA / PDPC | [IMDA.gov.sg / PDPC.gov.sg](https://www.pdpc.gov.sg) |
+| `EDB_Singapore-Tech-Ecosystem.pdf` | EDB Singapore | [EDB.gov.sg](https://www.edb.gov.sg) |
+| `EDB_Guide-to-Hiring-Your-Dream-Tech-Team-in-Singapore.pdf` | EDB Singapore | [EDB.gov.sg](https://www.edb.gov.sg) |
+| `Gen-AI_Artificial Intelligence and the Future of Work _sdnea2024001.pdf` | SDNEA | SDNEA / ILO publications |
+| `State_of_Ai_SEA_Digital.pdf` | Industry research | Publicly available research report |
+| `The AI Readiness Barometer-ASEAN AI Landscape.pdf` | Research institute | Publicly available research report |
+| `unlocking-southeast-asias-ai-potential.pdf` | Consulting firm | Publicly available research report |
+| `ASEAN-Guide-on-AI-Governance-and-Ethics_beautified_201223_v2.pdf` | ASEAN | [asean.org](https://asean.org) |
+| `e_conomy_sea_2025_report.pdf` | Google / Temasek / Bain | [Think with Google](https://www.thinkwithgoogle.com) |
+| `ERIA-One-ASEAN-Start-up-White-Paper-2024.pdf` | ERIA | [eria.org](https://www.eria.org) |
+| `Accelerating_SME_AI_Adoption_Through_Open_Source_in_Malaysia_s_Digital_Future_NAIO.pdf` | Ecosystm / NAIO | [ecosystm.io / NAIO publications](https://ecosystm.io) |
+| `THE-NATIONAL-GUIDELINES-ON-AI-GOVERNANCE-ETHICS.pdf` | National govt | National AI governance publication |
+| `Accelerating-AI-Discussions-in-ASEAN-.pdf` | ASEAN / Policy body | [asean.org](https://asean.org) |
+| `Cybersecurity_Playbook_for_Large_Language_Model_LLM_Applications.pdf` | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) |
+| `Companion Guide on Securing AI Systems.pdf` | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) |
+| `Guidelines on Securing AI Systems.pdf` | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) |
+| `large-language-model-starter-kit.pdf` | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) |
+| `Securing LLM Backed Systems_ Essential Authorization Practices 20240823.pdf` | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) |
+| `Singapore Cyber Landscape 2024_2025.pdf` | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) |
+
+### Knowledge Domain Summarychroma_db_agents/` vector database are **not included** in this repository (gitignored — PDFs are 109 MB; vector DB is 55 MB).
+> Download the PDFs from the public sources listed below, place them in `data_agents/`, then run Cell 7 (`build_knowledge_base()`) to rebuild the ChromaDB collections automatically.
+
+```bash
+mkdir -p data_agents
+```
+
+All source documents are publicly available. Download each PDF and save to `data_agents/` with the exact filename shown:
+
+| File | Publisher | Download / Source |
+|---|---|---|
+| `Singapore AI Opportunity.pdf` | IMDA Singapore | [IMDA.gov.sg](https://www.imda.gov.sg) |
+| `CSET-Examining-Singapores-AI-Progress.pdf` | CSET Georgetown | [cset.georgetown.edu](https://cset.georgetown.edu) |
+| `Model-AI-Governance-Framework-for-Generative-AI-19-June-2024.pdf` | IMDA / PDPC | [IMDA.gov.sg / PDPC.gov.sg](https://www.pdpc.gov.sg) |
+| `EDB_Singapore-Tech-Ecosystem.pdf` | EDB Singapore | [EDB.gov.sg](https://www.edb.gov.sg) |
+| `EDB_Guide-to-Hiring-Your-Dream-Tech-Team-in-Singapore.pdf` | EDB Singapore | [EDB.gov.sg](https://www.edb.gov.sg) |
+| `Gen-AI_Artificial Intelligence and the Future of Work _sdnea2024001.pdf` | SDNEA | SDNEA / ILO publications |
+| `State_of_Ai_SEA_Digital.pdf` | Industry research | Publicly available research report |
+| `The AI Readiness Barometer-ASEAN AI Landscape.pdf` | Research institute | Publicly available research report |
+| `unlocking-southeast-asias-ai-potential.pdf` | Consulting firm | Publicly available research report |
+| `ASEAN-Guide-on-AI-Governance-and-Ethics_beautified_201223_v2.pdf` | ASEAN | [asean.org](https://asean.org) |
+| `e_conomy_sea_2025_report.pdf` | Google / Temasek / Bain | [Think with Google](https://www.thinkwithgoogle.com) |
+| `ERIA-One-ASEAN-Start-up-White-Paper-2024.pdf` | ERIA | [eria.org](https://www.eria.org) |
+| `Accelerating_SME_AI_Adoption_Through_Open_Source_in_Malaysia_s_Digital_Future_NAIO.pdf` | Ecosystm / NAIO | [ecosystm.io / NAIO publications](https://ecosystm.io) |
+| `THE-NATIONAL-GUIDELINES-ON-AI-GOVERNANCE-ETHICS.pdf` | National govt | National AI governance publication |
+| `Accelerating-AI-Discussions-in-ASEAN-.pdf` | ASEAN / Policy body | [asean.org](https://asean.org) |
+| `Cybersecurity_Playbook_for_Large_Language_Model_LLM_Applications.pdf` | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) |
+| `Companion Guide on Securing AI Systems.pdf` | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) |
+| `Guidelines on Securing AI Systems.pdf` | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) |
+| `large-language-model-starter-kit.pdf` | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) |
+| `Securing LLM Backed Systems_ Essential Authorization Practices 20240823.pdf` | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) |
+| `Singapore Cyber Landscape 2024_2025.pdf` | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) |
 
 | File | Publisher | Knowledge Domain |
 |---|---|---|
