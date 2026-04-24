@@ -60,16 +60,16 @@ executive-level answer.
           │                   ORCHESTRATOR / ROUTER                          │
           │          (LLM Intent Classifier + Keyword Fallback)              │
           │                selects 1 to 5 agents per query                   │
-          └──┬────────────┬────────────┬────────────┬────────────────────┬───┘
-             │            │            │            │                    │
-             ▼            ▼            ▼            ▼                    ▼
+          └──┬────────────┬─────────────┬─────────────┬────────────────┬─────┘
+             │            │             │             │                │
+             ▼            ▼             ▼             ▼                ▼
       ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────┐  ┌──────────────┐
       │ SG Policy │ │ Invest.   │ │ Regional  │ │ Cybersec. │  │ Web Search   │
       │   Agent   │ │ Ecosystem │ │   Comp.   │ │ Compliance│  │    Agent     │
       │   (RAG)   │ │   Agent   │ │   Agent   │ │   Agent   │  │              │
-      └─────┬─────┘ └─────┬─────┘ └─────┬─────┘ └─────┬─────┘  └────────┬─────┘
-            │              │              │              │              │
-            ▼              ▼              ▼              ▼              ▼
+      └─────┬─────┘ └─────┬─────┘ └─────┬─────┘ └─────┬─────┘  └───────┬──────┘
+            │             │             │             │                │
+            ▼             ▼             ▼             ▼                ▼
        ChromaDB       ChromaDB       ChromaDB       ChromaDB       DuckDuckGo
       sg_policy_     invest_eco_   regional_cmp_  cybersec_cmp_  (live internet)
       collection     collection    collection     collection
