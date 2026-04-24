@@ -567,3 +567,8 @@ swap the `Chroma(...)` constructor call and the rest of the code is unchanged.
 | LangSmith traces not appearing | Confirm `LANGCHAIN_TRACING_V2=true` (lowercase, no quotes) in `.env`; if using `= 'True'` format, change to `LANGCHAIN_TRACING_V2=true` |
 | Slow first query (30–60 s) | Normal — embedding model is warming up; subsequent queries are 3–8 s |
 
+
+Acknowledgement
+---
+Portions of this repo’s framework documentation and correction were supported by Anthropic’s Claude, used for drafting and refining explanatory text.
+
