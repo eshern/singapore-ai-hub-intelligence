@@ -16,7 +16,7 @@
 7. [Quick Start — Jupyter Notebook](#7-quick-start--jupyter-notebook)
 8. [FastAPI Deployment](#8-fastapi-deployment)
 9. [API Reference](#9-api-reference)
-10. [LangSmith Observability](#10-langsmith-observability)
+10. [LangSmith Observability](#10-langsmith-observability) — account setup → API key → portal walkthrough → trace tree → debugging
 11. [User Guide — Investor Chatbot](#11-user-guide--investor-chatbot)
 12. [Extending the System](#12-extending-the-system)
 13. [Troubleshooting](#13-troubleshooting)
@@ -56,46 +56,73 @@ executive-level answer.
 └────────────────────────────────────┬─────────────────────────────────────────────┘
                                      │
                                      ▼
-          ┌──────────────────────────────────────────────────────────────────┐
-          │                   ORCHESTRATOR / ROUTER                          │
-          │          (LLM Intent Classifier + Keyword Fallback)              │
-          │                selects 1 to 5 agents per query                   │
-          └──┬────────────┬─────────────┬─────────────┬────────────────┬─────┘
-             │            │             │             │                │
-             ▼            ▼             ▼             ▼                ▼
-      ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────┐  ┌──────────────┐
-      │ SG Policy │ │ Invest.   │ │ Regional  │ │ Cybersec. │  │ Web Search   │
-      │   Agent   │ │ Ecosystem │ │   Comp.   │ │ Compliance│  │    Agent     │
-      │   (RAG)   │ │   Agent   │ │   Agent   │ │   Agent   │  │              │
-      └─────┬─────┘ └─────┬─────┘ └─────┬─────┘ └─────┬─────┘  └───────┬──────┘
-            │             │             │             │                │
-            ▼             ▼             ▼             ▼                ▼
-       ChromaDB       ChromaDB       ChromaDB       ChromaDB       DuckDuckGo
-      sg_policy_     invest_eco_   regional_cmp_  cybersec_cmp_  (live internet)
-      collection     collection    collection     collection
-            │              │              │              │               │
-            └──────────────┴──────────────┴──────────────┴───────────────┘
-                                          │
-                                          ▼  (all agent outputs)
-                            ┌─────────────────────────────┐
-                            │       SYNTHESIZER NODE      │  <- LangGraph Final Node
-                            │   (Executive-Level Answer)  │
-                            └─────────────┬───────────────┘
-                                          │
-                                          ▼
-                                 Final investor answer
-                           ┌──────────────┴──────────────┐
-                           ▼                             ▼
-                   Gradio Chatbot             FastAPI JSON Response
+          ┌────────────────────────────────────────────────────────────────┐
+          │                    GATEKEEPER NODE                             │
+          │         (LLM Topic Classifier — LangGraph Entry Point)         │
+          │   Is this query within the 5 supported investment domains?     │
+          └───────────────────────────┬────────────────────────────────────┘
+                                      │
+               ┌──────────────────────┴────────────────────────┐
+               │ BLOCK                                         │ ALLOW
+               ▼                                               ▼
+  ┌─────────────────────────────┐    ┌────────────────────────────────────────────────────┐
+  │   BLOCKED RESPONSE NODE     │    │            ORCHESTRATOR / ROUTER                   │
+  │  Polite refusal — lists 5   │    │   (LLM Intent Classifier + Keyword Fallback)       │
+  │  supported domains. Zero    │    │              - selects 1 to 5 agents               │
+  │  RAG / LLM calls consumed.  │    └──┬─────────┬──────────┬────────────┬────────────┬──┘
+  └─────────────────────────────┘       │         │          │            │            │  
+                                        ▼         ▼          ▼            ▼            ▼
+                                 ┌──────────┐ ┌─────────┐ ┌────────┐ ┌──────────┐ ┌──────────┐
+                                 │SG Policy │ │Invest.  │ │Regional│ │Cybersec  │ │Web Search│  
+                                 │Agent     │ │Ecosystem│ │Comp.   │ │Compliance│ │Agent     │
+                                 │(RAG)     │ │Agent    │ │Agent   │ │Agent     │ │          │
+                                 └────┬─────┘ └───┬─────┘ └───┬────┘ └─┬────────┘ └────┬─────┘
+                                      │           │           │        │               │
+                                      ▼           ▼           ▼        ▼               ▼
+                                 ChromaDB    ChromaDB    ChromaDB  ChromaDB      DuckDuckGo
+                                sg_policy_  invest_eco_ reg_cmp_  cybsec_cmp   (live internet)
+                                collection  collection  collection collection
+                                      │           │          │        │               │
+                                      └───────────┴──────────┴────────┴───────────────┘
+                                                             │
+                                                             ▼  (all agent outputs)
+                                               ┌─────────────────────────────┐
+                                               │       SYNTHESIZER NODE      │
+                                               │   (Executive-Level Answer)  │
+                                               └─────────────┬───────────────┘
+                                                             │
+                                                             ▼
+                                                    Final investor answer
+                                              ┌──────────────┴──────────────┐
+                                              ▼                             ▼
+                                      Gradio Chatbot             FastAPI JSON Response
 ```
 
 ### LangGraph Node Responsibilities
 
-| Node | Inputs | Outputs |
-|---|---|---|
-| `router_node` | Raw query | `selected_agents`, `routing_reason` |
-| `execute_agents_node` | Query + agent list | `agent_outputs` (per-agent answers + doc counts) |
-| `synthesize_node` | Query + all agent outputs | `response` (final answer) |
+| Node | Role | Inputs | Outputs |
+|---|---|---|---|
+| `gatekeeper_node` | **Entry point** — topic guardrail; runs before any RAG or routing | Raw query | `allowed: bool` |
+| `blocked_response_node` | Short-circuit refusal path; **zero RAG/LLM calls consumed** | `allowed=False` | Polite refusal listing 5 supported domains |
+| `router_node` | Intent classifier; selects which agents to invoke | Raw query | `selected_agents`, `routing_reason` |
+| `execute_agents_node` | Runs each selected agent sequentially; collects grounded answers | Query + agent list | `agent_outputs` (per-agent answers + doc counts) |
+| `synthesize_node` | Merges all agent outputs into one executive briefing | Query + all agent outputs | `response` (final answer) |
+
+### LangGraph Wiring
+
+```python
+workflow.set_entry_point('gatekeeper')
+workflow.add_conditional_edges('gatekeeper',
+    lambda s: 'router' if s.get('allowed', True) else 'blocked')
+workflow.add_edge('blocked',     END)   # short-circuit — no RAG consumed
+workflow.add_edge('router',      'executor')
+workflow.add_edge('executor',    'synthesizer')
+workflow.add_edge('synthesizer', END)
+```
+
+The `gatekeeper_node` decision is the **only** conditional edge in the graph. All other transitions
+are deterministic. A `BLOCK` decision exits immediately at `END` without touching ChromaDB, the
+router LLM, or any agent.
 
 ### Agent–Collection Mapping
 
@@ -115,57 +142,59 @@ executive-level answer.
 > **Note:** The `data_agents/` folder and `chroma_db_agents/` vector database are **not included** in this repository (gitignored — PDFs are 109 MB; vector DB is 55 MB).
 > Download the PDFs from the public sources listed below, place them in `data_agents/`, then run Cell 7 (`build_knowledge_base()`) to rebuild the ChromaDB collections automatically.
 
-All source documents are publicly available. Download each PDF and save to `data_agents/` with the exact filename shown:
+```bash
+mkdir -p data_agents
+```
 
-| File | Publisher | Download / Source |
-|---|---|---|
-| `Singapore AI Opportunity.pdf` | IMDA Singapore | [IMDA.gov.sg](https://www.imda.gov.sg) |
-| `CSET-Examining-Singapores-AI-Progress.pdf` | CSET Georgetown | [cset.georgetown.edu](https://cset.georgetown.edu) |
-| `Model-AI-Governance-Framework-for-Generative-AI-19-June-2024.pdf` | IMDA / PDPC | [IMDA.gov.sg / PDPC.gov.sg](https://www.pdpc.gov.sg) |
-| `EDB_Singapore-Tech-Ecosystem.pdf` | EDB Singapore | [EDB.gov.sg](https://www.edb.gov.sg) |
-| `EDB_Guide-to-Hiring-Your-Dream-Tech-Team-in-Singapore.pdf` | EDB Singapore | [EDB.gov.sg](https://www.edb.gov.sg) |
-| `Gen-AI_Artificial Intelligence and the Future of Work _sdnea2024001.pdf` | SDNEA | SDNEA / ILO publications |
-| `State_of_Ai_SEA_Digital.pdf` | Industry research | Publicly available research report |
-| `The AI Readiness Barometer-ASEAN AI Landscape.pdf` | Research institute | Publicly available research report |
-| `unlocking-southeast-asias-ai-potential.pdf` | Consulting firm | Publicly available research report |
-| `ASEAN-Guide-on-AI-Governance-and-Ethics_beautified_201223_v2.pdf` | ASEAN | [asean.org](https://asean.org) |
-| `e_conomy_sea_2025_report.pdf` | Google / Temasek / Bain | [Think with Google](https://www.thinkwithgoogle.com) |
-| `ERIA-One-ASEAN-Start-up-White-Paper-2024.pdf` | ERIA | [eria.org](https://www.eria.org) |
-| `Accelerating_SME_AI_Adoption_Through_Open_Source_in_Malaysia_s_Digital_Future_NAIO.pdf` | Ecosystm / NAIO | [ecosystm.io / NAIO publications](https://ecosystm.io) |
-| `THE-NATIONAL-GUIDELINES-ON-AI-GOVERNANCE-ETHICS.pdf` | National govt | National AI governance publication |
-| `Accelerating-AI-Discussions-in-ASEAN-.pdf` | ASEAN / Policy body | [asean.org](https://asean.org) |
-| `Cybersecurity_Playbook_for_Large_Language_Model_LLM_Applications.pdf` | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) |
-| `Companion Guide on Securing AI Systems.pdf` | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) |
-| `Guidelines on Securing AI Systems.pdf` | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) |
-| `large-language-model-starter-kit.pdf` | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) |
-| `Securing LLM Backed Systems_ Essential Authorization Practices 20240823.pdf` | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) |
-| `Singapore Cyber Landscape 2024_2025.pdf` | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) |
+All 21 source documents are publicly available. The file number in the table corresponds to the numbered filename list below.
 
-### Knowledge Domain Summary
+| # | Publisher | Download / Source | Knowledge Domain |
+|---|---|---|---|
+| 1 | IMDA Singapore | [IMDA.gov.sg](https://www.imda.gov.sg) | NAIS 2.0 strategy, AI governance, Smart Nation |
+| 2 | CSET (Georgetown) | [cset.georgetown.edu](https://cset.georgetown.edu) | Independent assessment of Singapore's AI capabilities and global standing |
+| 3 | IMDA / PDPC Singapore | [PDPC.gov.sg](https://www.pdpc.gov.sg) | Model AI Governance Framework for Generative AI — responsible GenAI deployment guidelines |
+| 4 | EDB Singapore | [EDB.gov.sg](https://www.edb.gov.sg) | Tech clusters, industries, R&D ecosystem |
+| 5 | EDB Singapore | [EDB.gov.sg](https://www.edb.gov.sg) | Talent acquisition, workforce, hiring market |
+| 6 | SDNEA / Research | SDNEA / ILO publications | Generative AI impact on workforce, jobs, and skills across SEA |
+| 7 | Industry research | Publicly available research report | AI adoption and state across Southeast Asia |
+| 8 | Research institute | Publicly available research report | ASEAN AI readiness rankings and scores |
+| 9 | Consulting firm | Publicly available research report | SEA AI growth potential and investment outlook |
+| 10 | ASEAN | [asean.org](https://asean.org) | Regional AI governance principles, ethics guidelines across ASEAN |
+| 11 | Google / Temasek / Bain | [Think with Google](https://www.thinkwithgoogle.com) | Digital economy size, growth, and AI trends across Southeast Asia |
+| 12 | ERIA | [eria.org](https://www.eria.org) | ASEAN startup ecosystems, cross-border investment, and policy enablers |
+| 13 | Ecosystm / NAIO | [ecosystm.io](https://ecosystm.io) | Malaysia SME AI adoption via open source, digital transformation |
+| 14 | National govt | National AI governance publication | National-level AI governance and ethics guidelines across the region |
+| 15 | ASEAN / Policy body | [asean.org](https://asean.org) | Key AI policy discussions, priorities, and collaboration being accelerated across ASEAN |
+| 16 | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) | LLM security, OWASP, compliance for AI deployments |
+| 17 | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) | Practical guidance for securing AI infrastructure and pipelines |
+| 18 | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) | Security guidelines and controls for AI system deployment |
+| 19 | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) | Safe LLM implementation practices, risks, and mitigations |
+| 20 | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) | Authorization and access control practices for LLM-backed systems |
+| 21 | CSA Singapore | [CSA.gov.sg](https://www.csa.gov.sg) | Singapore cybersecurity threat landscape, incidents, and national posture |
 
-| File | Publisher | Knowledge Domain |
-|---|---|---|
-| `Singapore AI Opportunity.pdf` | Singapore Govt / IMDA | NAIS 2.0 strategy, AI governance, Smart Nation |
-| `CSET-Examining-Singapores-AI-Progress.pdf` | CSET (Georgetown) | Independent assessment of Singapore's AI capabilities and global standing |
-| `Model-AI-Governance-Framework-for-Generative-AI-19-June-2024.pdf` | IMDA / PDPC Singapore | Model AI Governance Framework for Generative AI — responsible GenAI deployment guidelines |
-| `EDB_Singapore-Tech-Ecosystem.pdf` | EDB Singapore | Tech clusters, industries, R&D ecosystem |
-| `EDB_Guide-to-Hiring-Your-Dream-Tech-Team-in-Singapore.pdf` | EDB Singapore | Talent acquisition, workforce, hiring market |
-| `Gen-AI_Artificial Intelligence and the Future of Work _sdnea2024001.pdf` | SDNEA / Research | Generative AI impact on workforce, jobs, and skills across SEA |
-| `State_of_Ai_SEA_Digital.pdf` | Industry research | AI adoption and state across Southeast Asia |
-| `The AI Readiness Barometer-ASEAN AI Landscape.pdf` | Research institute | ASEAN AI readiness rankings and scores |
-| `unlocking-southeast-asias-ai-potential.pdf` | Consulting firm | SEA AI growth potential and investment outlook |
-| `ASEAN-Guide-on-AI-Governance-and-Ethics_beautified_201223_v2.pdf` | ASEAN | Regional AI governance principles, ethics guidelines across ASEAN |
-| `e_conomy_sea_2025_report.pdf` | Google / Temasek / Bain | Digital economy size, growth, and AI trends across Southeast Asia |
-| `ERIA-One-ASEAN-Start-up-White-Paper-2024.pdf` | ERIA | ASEAN startup ecosystems, cross-border investment, and policy enablers |
-| `Accelerating_SME_AI_Adoption_Through_Open_Source_in_Malaysia_s_Digital_Future_NAIO.pdf` | Ecosystm / NAIO | Malaysia SME AI adoption via open source, digital transformation |
-| `THE-NATIONAL-GUIDELINES-ON-AI-GOVERNANCE-ETHICS.pdf` | National govt | National-level AI governance and ethics guidelines across the region |
-| `Accelerating-AI-Discussions-in-ASEAN-.pdf` | ASEAN / Policy body | Key AI policy discussions, priorities, and collaboration being accelerated across ASEAN |
-| `Cybersecurity_Playbook_for_Large_Language_Model_LLM_Applications.pdf` | CSA Singapore | LLM security, OWASP, compliance for AI deployments |
-| `Companion Guide on Securing AI Systems.pdf` | CSA Singapore | Practical guidance for securing AI infrastructure and pipelines |
-| `Guidelines on Securing AI Systems.pdf` | CSA Singapore | Security guidelines and controls for AI system deployment |
-| `large-language-model-starter-kit.pdf` | CSA Singapore | Safe LLM implementation practices, risks, and mitigations |
-| `Securing LLM Backed Systems_ Essential Authorization Practices 20240823.pdf` | CSA Singapore | Authorization and access control practices for LLM-backed systems |
-| `Singapore Cyber Landscape 2024_2025.pdf` | CSA Singapore | Singapore cybersecurity threat landscape, incidents, and national posture |
+**Source PDF filenames** — save each to `data_agents/` with the exact name shown:
+
+1. `Singapore AI Opportunity.pdf`
+2. `CSET-Examining-Singapores-AI-Progress.pdf`
+3. `Model-AI-Governance-Framework-for-Generative-AI-19-June-2024.pdf`
+4. `EDB_Singapore-Tech-Ecosystem.pdf`
+5. `EDB_Guide-to-Hiring-Your-Dream-Tech-Team-in-Singapore.pdf`
+6. `Gen-AI_Artificial Intelligence and the Future of Work _sdnea2024001.pdf`
+7. `State_of_Ai_SEA_Digital.pdf`
+8. `The AI Readiness Barometer-ASEAN AI Landscape.pdf`
+9. `unlocking-southeast-asias-ai-potential.pdf`
+10. `ASEAN-Guide-on-AI-Governance-and-Ethics_beautified_201223_v2.pdf`
+11. `e_conomy_sea_2025_report.pdf`
+12. `ERIA-One-ASEAN-Start-up-White-Paper-2024.pdf`
+13. `Accelerating_SME_AI_Adoption_Through_Open_Source_in_Malaysia_s_Digital_Future_NAIO.pdf`
+14. `THE-NATIONAL-GUIDELINES-ON-AI-GOVERNANCE-ETHICS.pdf`
+15. `Accelerating-AI-Discussions-in-ASEAN-.pdf`
+16. `Cybersecurity_Playbook_for_Large_Language_Model_LLM_Applications.pdf`
+17. `Companion Guide on Securing AI Systems.pdf`
+18. `Guidelines on Securing AI Systems.pdf`
+19. `large-language-model-starter-kit.pdf`
+20. `Securing LLM Backed Systems_ Essential Authorization Practices 20240823.pdf`
+21. `Singapore Cyber Landscape 2024_2025.pdf`
 
 ---
 
@@ -415,59 +444,257 @@ curl -X POST http://localhost:8000/rebuild-kb \
 
 ## 10. LangSmith Observability
 
-LangSmith provides full tracing of every agent run with **no code changes required**
-— only the three `.env` variables described in Section 6.
+LangSmith provides full, automatic tracing of every agent run — **no code changes required**.
+All you need are three environment variables. This section walks you from account creation to
+reading live traces in the portal.
 
-### Accessing the LangSmith UI
+---
 
-1. Go to [smith.langchain.com](https://smith.langchain.com) and sign in
-2. In the left sidebar click **Projects** → select **`sg-ai-hub-intelligence`**
-3. Each row in the runs table is one `app.invoke()` call (one user query end-to-end)
-4. Click any run to expand the **trace tree** showing all three nodes
+### Step 1 — Create a LangSmith Account
 
-### What you see in the trace tree
+1. Open [smith.langchain.com](https://smith.langchain.com) in your browser.
+2. Click **Sign Up** (top-right). Use your GitHub account or email — both are free.
+3. On first login you are placed in a personal workspace named after your username (e.g. `my-org`).
+   This is fine for personal use; teams can create a shared organisation workspace later.
+
+---
+
+### Step 2 — Create the Project
+
+LangSmith groups traces by **Project**. You need to create the project before your first run so
+traces land in the right place.
+
+1. In the left sidebar click **Projects**.
+2. Click **+ New Project** (top-right of the projects list).
+3. Set the project name to exactly: `sg-ai-hub-intelligence`
+   *(this matches the `LANGCHAIN_PROJECT` value used in this codebase — do not rename it).*
+4. Leave all other settings as defaults and click **Create**.
+
+You now have an empty project ready to receive traces.
+
+---
+
+### Step 3 — Generate an API Key
+
+1. Click your **profile avatar** (bottom-left of the sidebar) → **Settings**.
+2. Select the **API Keys** tab.
+3. Click **Create API Key**.
+4. Give it a description (e.g. `sg-ai-hub local dev`) and click **Create**.
+5. **Copy the key immediately** — it is shown only once. It starts with `lsv2_pt_...`.
+
+> **Security:** treat this key like a password. Never paste it into a notebook cell or commit it
+> to git. Store it only in `.env`.
+
+---
+
+### Step 4 — Configure `.env`
+
+Open (or create) `.env` in the project root and add the three LangSmith lines:
+
+```env
+# ── Required ──────────────────────────────────────────────────────────────────
+GROQ_API_KEY=gsk_...your_groq_key...
+
+# ── LangSmith tracing (enables portal visibility) ─────────────────────────────
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_API_KEY=lsv2_pt_...your_langsmith_key...
+LANGCHAIN_PROJECT=sg-ai-hub-intelligence
+```
+
+`LANGCHAIN_TRACING_V2=true` is the master switch. Remove or set to `false` to disable tracing
+without changing any other code.
+
+---
+
+### Step 5 — Verify the Environment Loads
+
+Before running any queries, confirm the variables are visible to Python:
+
+```bash
+python - <<'EOF'
+import os
+from dotenv import load_dotenv
+load_dotenv()
+assert os.getenv("LANGCHAIN_TRACING_V2") == "true", "Tracing switch not set"
+assert os.getenv("LANGCHAIN_API_KEY", "").startswith("lsv2"), "API key missing or malformed"
+assert os.getenv("LANGCHAIN_PROJECT") == "sg-ai-hub-intelligence", "Project name mismatch"
+print("LangSmith environment OK")
+EOF
+```
+
+Expected output: `LangSmith environment OK`
+
+---
+
+### Step 6 — Run a Query and Confirm Tracing
+
+#### In the Jupyter notebook
+
+Run all cells (1–19). Cell 19 executes the flagship query. Within a few seconds of the cell
+completing, a trace will appear in the LangSmith portal.
+
+#### Via FastAPI
+
+```bash
+uvicorn api:app --reload --port 8000
+
+curl -s -X POST http://localhost:8000/query \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Why should I choose Singapore over Malaysia for my AI hub?"}'
+```
+
+---
+
+### Step 7 — Navigate the LangSmith Portal
+
+1. Go to [smith.langchain.com](https://smith.langchain.com) → **Projects** → **`sg-ai-hub-intelligence`**.
+2. The **Runs** table shows one row per query. Columns include:
+   - **Name** — `LangGraph` (the graph) and child nodes
+   - **Status** — green tick = success; red circle = error
+   - **Latency** — end-to-end wall-clock time
+   - **Tokens** — total input + output tokens consumed
+   - **Start Time** — when the query was received
+3. Click any run row to open the **Trace Detail** panel.
+
+---
+
+### Step 8 — Read the Trace Tree
+
+Each query expands into a tree of child spans. Here is what to expect for this project:
 
 ```
-Run: LangGraph  (total latency shown here)
+▼ LangGraph  [total latency e.g. 8.4 s]
   │
-  ├── router_node                            ← click to inspect routing decision
-  │     LLM call: intent classification
-  │       Input:  router_prompt + user query
-  │       Output: {"agents": ["regional_comparison_agent",
-  │                            "investment_ecosystem_agent"], ...}
-  │       Tokens: 312 in / 28 out  |  Latency: 0.8 s
+  ├── gatekeeper_node
+  │     └── ChatGroq  [~0.5 s]
+  │           Input:  system prompt listing 5 supported domains + user query
+  │           Output: "ALLOW"  (or "BLOCK" for off-topic queries)
+  │           Tokens: ~280 in / 1 out
   │
-  ├── execute_agents_node                    ← click to inspect retrieval + agent answers
-  │     ├── ChromaDB similarity_search (regional_comparison_agent, k=5)
-  │     │     Query:     "Singapore vs Malaysia AI investment"
-  │     │     Retrieved: 5 chunks from regional_comparison_collection
-  │     ├── LLM call: regional_comparison_agent answer
-  │     │     Tokens: 2 140 in / 380 out  |  Latency: 2.1 s
-  │     ├── ChromaDB similarity_search (investment_ecosystem_agent, k=5)
-  │     └── LLM call: investment_ecosystem_agent answer
-  │           Tokens: 1 890 in / 290 out  |  Latency: 1.8 s
+  ├── router_node                            (skipped if gatekeeper returned BLOCK)
+  │     └── ChatGroq  [~0.8 s]
+  │           Input:  routing system prompt + user query
+  │           Output: {"agents": ["regional_comparison_agent",
+  │                                "investment_ecosystem_agent"],
+  │                    "reason": "Query involves ASEAN comparison and SG ecosystem"}
+  │           Tokens: ~312 in / 28 out
   │
-  │   (for web_search_agent queries)
-  │     └── DuckDuckGoSearchRun              ← shows raw search results string
-  │           LLM call: web_search_agent synthesis
-  │           Tokens: 3 100 in / 420 out  |  Latency: 3.4 s
+  ├── execute_agents_node
+  │     ├── Chroma.similarity_search  (regional_comparison_agent, k=5)
+  │     │     Query:     user's question
+  │     │     Retrieved: 5 document chunks from regional_comparison_collection
+  │     ├── ChatGroq  [~2.1 s]  — regional_comparison_agent answer
+  │     │     Tokens: ~2 140 in / 380 out
+  │     ├── Chroma.similarity_search  (investment_ecosystem_agent, k=5)
+  │     └── ChatGroq  [~1.8 s]  — investment_ecosystem_agent answer
+  │           Tokens: ~1 890 in / 290 out
   │
-  └── synthesize_node                        ← click to see the final merge prompt
-        Input:  all agent outputs + user query
-        Output: synthesised executive briefing
-        Tokens: 1 842 in / 412 out  |  Latency: 3.2 s
+  │   ── (for queries containing "latest", "2025", "news", etc.) ──
+  │     └── DuckDuckGoSearchRun
+  │           Input:  raw user query string sent to DuckDuckGo
+  │           Output: concatenated search result snippets
+  │           └── ChatGroq  [~3.4 s]  — web_search_agent synthesis
+  │                 Tokens: ~3 100 in / 420 out
+  │
+  └── synthesize_node
+        └── ChatGroq  [~3.2 s]
+              Input:  all agent outputs + user query wrapped in synthesis prompt
+              Output: final executive briefing (markdown)
+              Tokens: ~1 842 in / 412 out
 ```
 
-### Typical debugging workflow
+**What to click first:** open `synthesize_node → ChatGroq → Input` — this shows you the complete
+prompt that was assembled from all agent answers. It is the fastest way to verify the system is
+working end-to-end.
 
-| Problem | LangSmith trace to inspect | What to look for |
+---
+
+### Step 9 — Use the Portal Features
+
+#### Filter and search runs
+
+- Use the **search bar** at the top of the Runs table to filter by query text.
+- Use the **Status** filter to show only failed runs.
+- Use **Date range** to compare behaviour before/after a code change.
+
+#### Inspect token usage
+
+- Click **Metrics** tab inside any run to see per-node token breakdown.
+- The **Tokens** column on the Runs list shows cumulative usage — useful for estimating Groq
+  daily quota consumption (free tier: 100K tokens/day for `llama-3.3-70b-versatile`).
+
+#### Compare runs side-by-side
+
+1. Tick two run rows using the checkboxes on the left.
+2. Click **Compare** (appears in the toolbar).
+3. The diff view shows prompt and output differences between runs — useful for A/B testing
+   prompts or model changes.
+
+#### Annotate runs for evaluation
+
+1. Open a run, click **Add Annotation** (flag icon).
+2. Score on a 1–5 scale and add a note (e.g. "Synthesis missed the cybersecurity angle").
+3. Annotations accumulate into a labelled dataset you can use later for automated eval.
+
+---
+
+### Step 10 — Enable Feedback Collection (Optional)
+
+LangSmith can record thumbs-up / thumbs-down feedback from the Gradio UI. Add this snippet after
+Cell 15 (`synthesize_node`) in the notebook to attach a `run_id` to each response:
+
+```python
+# Cell 15a — attach run_id for LangSmith feedback (optional)
+from langchain_core.tracers.context import collect_runs
+
+def synthesize_node_with_run_id(state: InvestorState) -> dict:
+    with collect_runs() as cb:
+        result = synthesize_node(state)
+        result["run_id"] = cb.traced_runs[0].id if cb.traced_runs else None
+    return result
+```
+
+Then in the Gradio callback, call:
+
+```python
+from langsmith import Client as LangSmithClient
+_ls_client = LangSmithClient()
+
+def record_feedback(run_id, score: int):
+    """score: 1 = thumbs up, 0 = thumbs down"""
+    if run_id:
+        _ls_client.create_feedback(run_id, key="user_rating", score=score)
+```
+
+> This is optional. The core tracing in Steps 1–9 works without it.
+
+---
+
+### Typical Debugging Workflow
+
+| Symptom | Node to inspect | What to look for |
 |---|---|---|
-| Wrong agent selected | `router_node` → LLM call output | Is the JSON valid? Did `web_search_agent` get included for a "latest" query? |
-| RAG answer not grounded in PDF | `execute_agents_node` → ChromaDB call | Are retrieved chunks relevant? Try rephrasing the question |
-| Web search returned no results | `execute_agents_node` → DuckDuckGoSearchRun | Check the raw results string — may be empty or rate-limited |
-| Synthesizer ignores agent output | `synthesize_node` → LLM input | Check `specialist_reports` block — is the agent output present? |
-| High latency | Top-level run waterfall | Expand each node; the LLM call with most tokens is usually the bottleneck |
-| JSON parse failure (keyword fallback used) | `router_node` → LLM output | The raw LLM string — look for markdown fences or extra text around the JSON |
+| Off-topic query got through | `gatekeeper_node → ChatGroq → Output` | Did the LLM output contain `BLOCK`? Check the raw string |
+| Wrong agents selected | `router_node → ChatGroq → Output` | Is the JSON valid? Is `web_search_agent` present for "latest" queries? |
+| RAG answer not grounded in PDFs | `execute_agents_node → Chroma → Output` | Are retrieved chunks topically relevant? Try rephrasing the query |
+| Web search returned nothing useful | `execute_agents_node → DuckDuckGoSearchRun → Output` | Check the raw snippet text — DuckDuckGo may be rate-limited; retry |
+| Synthesizer skipped an agent | `synthesize_node → ChatGroq → Input` | Check `specialist_reports` block — is that agent's output present? |
+| High end-to-end latency | Top-level `LangGraph` waterfall | Expand each node; the ChatGroq call with the most tokens is usually the bottleneck |
+| JSON parse failure (keyword fallback used) | `router_node → ChatGroq → Output` | Look for markdown fences (` ```json `) or extra text wrapping the JSON |
+| Gatekeeper blocked a valid query | `gatekeeper_node → ChatGroq → Output` | Check exact output; adjust the gatekeeper system prompt if needed |
+
+---
+
+### Quick Reference — LangSmith Variables
+
+| Variable | Required | Example Value | Purpose |
+|---|---|---|---|
+| `LANGCHAIN_TRACING_V2` | Yes | `true` | Master on/off switch for tracing |
+| `LANGCHAIN_API_KEY` | Yes | `lsv2_pt_abc123...` | Authenticates with LangSmith servers |
+| `LANGCHAIN_PROJECT` | Yes | `sg-ai-hub-intelligence` | Routes traces to this project in the portal |
+
+All three must be present and correct in `.env` for traces to appear. If runs do not show up
+within 30 seconds of a query, re-run the verification command in Step 5.
 
 ---
 
@@ -566,7 +793,6 @@ swap the `Chroma(...)` constructor call and the rest of the code is unchanged.
 | Gradio `OSError: Port already in use` | Kill the existing Gradio process or change port: `demo.launch(server_port=7861)` |
 | LangSmith traces not appearing | Confirm `LANGCHAIN_TRACING_V2=true` (lowercase, no quotes) in `.env`; if using `= 'True'` format, change to `LANGCHAIN_TRACING_V2=true` |
 | Slow first query (30–60 s) | Normal — embedding model is warming up; subsequent queries are 3–8 s |
-
 
 Acknowledgement
 ---
