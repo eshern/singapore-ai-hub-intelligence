@@ -58,3 +58,4 @@ chroma_db/
 chroma_db_agents/
 *.zip
 id_*
+CONTEXT.md
