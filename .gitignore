@@ -57,3 +57,4 @@ data_agents/
 chroma_db/
 chroma_db_agents/
 *.zip
+id_*
