@@ -16,7 +16,7 @@
 7. [Quick Start — Jupyter Notebook](#7-quick-start--jupyter-notebook)
 8. [FastAPI Deployment](#8-fastapi-deployment)
 9. [API Reference](#9-api-reference)
-10. [LangSmith Observability](#10-langsmith-observability) — account setup → API key → portal walkthrough → trace tree → debugging
+10. [LangSmith Observability](#10-langsmith-observability)
 11. [User Guide — Investor Chatbot](#11-user-guide--investor-chatbot)
 12. [Extending the System](#12-extending-the-system)
 13. [Troubleshooting](#13-troubleshooting)
